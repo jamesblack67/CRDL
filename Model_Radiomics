@@ -1,0 +1,119 @@
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    roc_auc_score, accuracy_score, confusion_matrix,
+    classification_report, roc_curve
+)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+# =========================================================
+# 1️
+# =========================================================
+paths = {
+    "MPP_train": r"_\MPP_train_RFC_Selected30.csv",
+    "MPP_test":  r"_\MPP_test_RFC_Selected30.csv",
+    "nonMPP_train": r"_\nonMPP_train_RFC_Selected30.csv",
+    "nonMPP_test":  r"_\nonMPP_test_RFC_Selected30.csv",
+}
+
+# =========================================================
+# 2️
+# =========================================================
+MPP_train = pd.read_csv(paths["MPP_train"])
+MPP_test = pd.read_csv(paths["MPP_test"])
+nonMPP_train = pd.read_csv(paths["nonMPP_train"])
+nonMPP_test = pd.read_csv(paths["nonMPP_test"])
+
+
+MPP_train["label"] = 1
+nonMPP_train["label"] = 0
+MPP_test["label"] = 1
+nonMPP_test["label"] = 0
+
+
+train_all = pd.concat([MPP_train, nonMPP_train], axis=0, ignore_index=True)
+test_all = pd.concat([MPP_test, nonMPP_test], axis=0, ignore_index=True)
+
+
+id_col = train_all.columns[0]
+
+X_train = train_all.drop(columns=[id_col, "label"])
+y_train = train_all["label"]
+X_test = test_all.drop(columns=[id_col, "label"])
+y_test = test_all["label"]
+
+# =========================================================
+# 3️
+# =========================================================
+rf = RandomForestClassifier(
+    n_estimators=150,           
+    max_depth=8,                
+    max_features='sqrt',      
+    min_samples_split=10,      
+    min_samples_leaf=4,         
+    class_weight='balanced',    
+    oob_score=True,             
+    bootstrap=True,             
+    max_samples=0.8,            
+    n_jobs=-1,                 
+    random_state=42             
+)
+
+# =========================================================
+# 4️
+# =========================================================
+rf.fit(X_train, y_train)
+
+
+y_pred_prob = rf.predict_proba(X_test)[:, 1]
+y_pred = rf.predict(X_test)
+
+# =========================================================
+5
+# =========================================================
+auc = roc_auc_score(y_test, y_pred_prob)
+acc = accuracy_score(y_test, y_pred)
+cm = confusion_matrix(y_test, y_pred)
+
+
+print(f"AUC = {auc:.4f}")
+print(f"Accuracy = {acc:.4f}")
+print("\n分类报告:\n", classification_report(y_test, y_pred))
+print(f"OOB Score = {rf.oob_score_:.4f}")
+
+
+plt.figure(figsize=(5, 4))
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
+plt.title("Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("True")
+plt.tight_layout()
+plt.show()
+
+
+fpr, tpr, _ = roc_curve(y_test, y_pred_prob)
+plt.figure(figsize=(6, 5))
+plt.plot(fpr, tpr, label=f"AUC = {auc:.3f}")
+plt.plot([0, 1], [0, 1], "--", color="gray")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve - Random Forest")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+import joblib
+import os
+
+# =========================================================
+# =========================================================
+save_dir = r"D:\Revison\4_final\model"
+os.makedirs(save_dir, exist_ok=True)
+
+model_path = os.path.join(save_dir, "RFC_rad_Model.pkl")
+joblib.dump(rf, model_path)
+
+print(f"✅ model save to: {model_path}")
