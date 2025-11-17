@@ -103,7 +103,7 @@ def load_module(path):
     return net
 
 #Model Inference test
-def evaluate(net, loader):  #可以复用test_loader / all_loader
+def evaluate(net, loader):  
     net.eval()
     preds, labels, probs = [], [], []
 
@@ -123,7 +123,7 @@ def evaluate(net, loader):  #可以复用test_loader / all_loader
 
     # 
     acc = accuracy_score(labels, preds)
-    try:# 二分类 AUC
+    try:#  AUC
         auc = roc_auc_score(labels, probs)
     except:
         auc = 0.5
@@ -142,7 +142,7 @@ def partial_freeze(net):
     # if hasattr(net, "conv2"):
     #     for p in net.conv2.parameters():
     #         p.requires_grad = False
-    print("🔒 The conv1 layer has been frozen, and all subsequent layers remain trainable.")
+    print(" The conv1 layer has been frozen, and all subsequent layers remain trainable.")
 
 
 #Train model
@@ -195,7 +195,7 @@ def train(net,train_loader,test_loader,num_epochs =100,patience = 15):
                 },
                 "finetuned_best_ckpt.t7"
             )
-            # print("👍 find better model，save as best_model.pth")
+            # print(" find better model，save as best_model.pth")
         else:
             bad_epochs += 1
             if bad_epochs >= patience:
