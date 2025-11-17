@@ -1,0 +1,67 @@
+import SimpleITK as sitk
+from radiomics import featureextractor
+import os
+import pandas as pd
+
+
+# 1
+# =========================================================
+# basePath = r"D:\patient"
+folders = os.listdir(basePath)  
+print(folders)
+
+#2
+# =========================================================
+df = pd.DataFrame()
+
+settings = {
+    'binWidth': 25,
+    'resampledPixelSpacing': [1, 1, 1],  
+    'interpolator': sitk.sitkBSpline,
+    'normalize': True
+}
+
+extractor = featureextractor.RadiomicsFeatureExtractor(**settings)
+
+
+extractor.enableImageTypes(
+    Square={},
+    SquareRoot={},
+    Exponential={},
+    Original={},
+    LoG={"sigma": [4.0]},
+    Wavelet={}
+)
+
+
+# 3
+# =========================================================
+for folder in folders:
+    patient_path = os.path.join(basePath, folder)
+    files = os.listdir(patient_path)
+    
+    imageFile = None
+    maskFile = None
+    
+    for file in files:
+        if file.endswith('image.nii') or file.endswith('image.nii.gz'):
+            imageFile = os.path.join(patient_path, file)
+        elif file.endswith('mask.nii') or file.endswith('mask.nii.gz'):
+            maskFile = os.path.join(patient_path, file)
+    
+    if imageFile and maskFile:
+        print(f"Processing {folder} ...")
+        featureVector = extractor.execute(imageFile, maskFile)
+        
+
+        df_new = pd.DataFrame([featureVector])
+        df_new.insert(0, 'patient_id', folder)  
+        
+        # 拼接到主DataFrame
+        df = pd.concat([df, df_new], ignore_index=True)
+
+#4
+# =========================================================
+output_file = os.path.join(basePath, 'results_with_id.xlsx')
+df.to_excel(output_file, index=False)
+print(f"\n✅ Results save to：{output_file}")
