@@ -1,0 +1,88 @@
+import torch
+import numpy as np
+import os
+from myDataset import myDataset
+import pandas as pd
+
+def collect_pairs(root, label):
+    pairs = []
+    for dirpath, _, files in os.walk(root):
+        for f in files:
+            if f.endswith(('image.nii', 'image.nii.gz')):
+                img_path = os.path.join(dirpath, f)
+                if f.endswith('image.nii.gz'):
+                    mask_path = img_path.replace('image.nii.gz', 'mask.nii.gz')
+                else:
+                    mask_path = img_path.replace('image.nii', 'mask.nii')
+                if os.path.exists(mask_path):
+                    pairs.append({'image': img_path, 'mask': mask_path, 'label': label})
+                else:
+                    print(f"[WARN] mask not found: {mask_path}")
+    return pairs
+
+def load_module(path):
+    checkpoint = torch.load(path, map_location="cuda")
+    net = checkpoint['net']
+    net.cuda()
+    net.eval()
+    return net
+
+#
+def evaluate(net, loader,save_csv_path):  test_loader / all_loader
+    net.eval()
+    records = []
+    with torch.no_grad():
+        for img, label, ids in loader:
+
+            feat = net(img, return_feat=True)
+
+            for i in range(feat.shape[0]):
+                patient_id = ids[i]
+                feature_vector = feat[i].tolist()  # 16 float
+                row = [patient_id] + feature_vector  # 拼成一行
+                records.append(row)
+
+
+        col_names = ["patient_id"] + [f"feat_{i + 1}" for i in range(feat.shape[1])]
+        df = pd.DataFrame(records, columns=col_names)
+
+        df.to_csv(save_csv_path, index=False)
+        print(f"save to：{save_csv_path}")
+
+
+if __name__ == '__main__':
+    batch_size = 16
+    target_size = 32   
+    model_path = r'_\finetuned NASLung.t7'
+
+    train_save_path = r"train_features.csv"   
+    test_save_path = r"test_features.csv"  
+
+
+
+    m_train_path = r"_\MPP_train"
+    m_test_path = r"_\MPP_test"
+    n_train_path = r"_\nonMPP_train"
+    n_test_path = r"_\nonMPP_test"
+    m_train = collect_pairs(m_train_path, 1)
+    m_test = collect_pairs(m_test_path, 1)
+    n_train = collect_pairs(n_train_path, 0)
+    n_test = collect_pairs(n_test_path, 0)
+
+    train_pairs = m_train + n_train
+    test_pairs = m_test + n_test
+    print(f"train case: {len(m_train)} | control: {len(n_train)} | total: {len(train_pairs)}")
+    print(f"test case: {len(m_test)} | control: {len(n_test)} | total: {len(test_pairs)}")
+
+
+    train_dataset = myDataset(train_pairs,target_size=target_size, cache_dir="train_preprocess_data")
+    test_dataset = myDataset(test_pairs, target_size=target_size, cache_dir="test_preprocess_data")
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+
+    net = load_module(model_path)
+
+    evaluate(net, train_loader,train_save_path)
+    evaluate(net, test_loader,test_save_path)
+    print("ALL FINISHED")
