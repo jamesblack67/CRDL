@@ -1,0 +1,75 @@
+from sklearn.ensemble import RandomForestClassifier
+import pandas as pd
+import numpy as np
+import os
+
+# =========================================================
+# 1️
+# =========================================================
+MPP_train_path = r"_\MPP_train_t.csv"
+MPP_test_path = r"_\MPP_test_t.csv"
+nonMPP_train_path = r"_\nonMPP_train_t.csv"
+nonMPP_test_path = r"_\nonMPP_test_t.csv"
+
+# =========================================================
+# 2️
+# =========================================================
+MPP_train = pd.read_csv(MPP_train_path)
+nonMPP_train = pd.read_csv(nonMPP_train_path)
+
+MPP_train["label"] = 1
+nonMPP_train["label"] = 0
+
+train_all = pd.concat([MPP_train, nonMPP_train], axis=0, ignore_index=True)
+
+# =========================================================
+# 3️
+# =========================================================
+y_train = train_all["label"]
+X_train = train_all.select_dtypes(include=[np.number]).drop(columns=["label"], errors='ignore')
+
+print(f"✅  {X_train.shape[1]}")
+
+# =========================================================
+# 4️
+# =========================================================
+RFC = RandomForestClassifier(
+    n_estimators=1000,
+    max_depth=15,
+    max_features='sqrt',
+    min_samples_split=5,
+    min_samples_leaf=3,
+    max_samples=0.8,
+    oob_score=True,
+    n_jobs=-1,
+    random_state=42,
+    bootstrap=True,
+    class_weight='balanced'
+)
+
+RFC.fit(X_train, y_train)
+importances = RFC.feature_importances_
+indices = np.argsort(importances)[::-1]
+selected_features = X_train.columns[indices[:30]].tolist()
+
+
+# =========================================================
+# 5️
+# =========================================================
+def select_and_save(input_path, selected_features, output_path):
+    df = pd.read_csv(input_path)
+    id_col = df.columns[0]  # 
+    keep_cols = [id_col] + [col for col in selected_features if col in df.columns]
+    df_sel = df[keep_cols]
+    df_sel.to_csv(output_path, index=False)
+
+select_and_save(MPP_train_path, selected_features, r"_\MPP_train_RFC_Selected30.csv")
+select_and_save(MPP_test_path, selected_features, r"_\MPP_test_RFC_Selected30.csv")
+select_and_save(nonMPP_train_path, selected_features, r"_\nonMPP_train_RFC_Selected30.csv")
+select_and_save(nonMPP_test_path, selected_features, r"_\nonMPP_test_RFC_Selected30.csv")
+
+
+print("MPP_train_RFC_Selected30.csv")
+print("MPP_test_RFC_Selected30.csv")
+print("nonMPP_train_RFC_Selected30.csv")
+print("nonMPP_test_RFC_Selected30.csv")
