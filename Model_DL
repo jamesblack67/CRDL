@@ -1,0 +1,75 @@
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, classification_report
+import matplotlib.pyplot as plt
+import joblib
+
+# ====================== 1.read Data ======================
+path_mpp_train     = r"_\MPP_train_8.csv"
+path_mpp_test      = r"_\MPP_test_8.csv"
+path_nonmpp_train  = r"_\nonMPP_train_8.csv"
+path_nonmpp_test   = r"_\nonMPP_test_8.csv"
+
+df_mpp_train = pd.read_csv(path_mpp_train)
+df_mpp_train["label"] = 1
+
+df_mpp_test = pd.read_csv(path_mpp_test)
+df_mpp_test["label"] = 1
+
+df_nonmpp_train = pd.read_csv(path_nonmpp_train)
+df_nonmpp_train["label"] = 0
+
+df_nonmpp_test = pd.read_csv(path_nonmpp_test)
+df_nonmpp_test["label"] = 0
+
+
+df_train = pd.concat([df_mpp_train, df_nonmpp_train], axis=0, ignore_index=True)
+df_test  = pd.concat([df_mpp_test, df_nonmpp_test], axis=0, ignore_index=True)
+
+# ====================== 2.label======================
+y_train = df_train["label"]
+X_train = df_train.drop(columns=["label", "patient_id"], errors="ignore")
+
+y_test = df_test["label"]
+X_test = df_test.drop(columns=["label", "patient_id"], errors="ignore")
+
+print("train shape：", X_train.shape)
+print("test shape：", X_test.shape)
+
+# ====================== 3. train model ======================
+rf = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=None,
+    min_samples_split=2,
+    min_samples_leaf=4,
+    random_state=42,
+    max_features='log2'
+)
+
+rf.fit(X_train, y_train)
+
+# ----------- save model -----------
+save_path = r"D:\Revison4\4_final\model\DL_model.pkl"
+joblib.dump(rf, save_path)
+print(f"save to：{save_path}")
+
+# ====================== 4. evaluate ======================
+y_pred = rf.predict(X_test)
+y_prob = rf.predict_proba(X_test)[:, 1]
+
+print("\n====== test result ======")
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("AUC:", roc_auc_score(y_test, y_prob))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+print("\nClassification Report:\n", classification_report(y_test, y_pred))
+
+# ====================== 5. ROC ======================
+from sklearn.metrics import roc_curve
+
+fpr, tpr, _ = roc_curve(y_test, y_prob)
+plt.plot(fpr, tpr)
+plt.xlabel("FPR")
+plt.ylabel("TPR")
+plt.title("ROC Curve")
+plt.grid()
+plt.show()
