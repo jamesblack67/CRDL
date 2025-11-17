@@ -1,0 +1,77 @@
+import pandas as pd
+from scipy.stats import ttest_ind, levene
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+# =========================================================
+# 1️
+# =========================================================
+paths = {
+    "MPP_train": r"_\MPP_1226_train.csv",
+    "MPP_test": r"_\MPP_1226_test.csv",
+    "nonMPP_train": r"_\nonMPP_1226_train.csv",
+    "nonMPP_test": r"_\nonMPP_1226_test.csv",
+}
+
+# =========================================================
+# 2️
+# =========================================================
+MPP_train = pd.read_csv(paths["MPP_train"])
+nonMPP_train = pd.read_csv(paths["nonMPP_train"])
+
+id_col = MPP_train.columns[0]
+print(f"✅ ID: {id_col}")
+
+X_case = MPP_train.drop(columns=[id_col])
+X_ctrl = nonMPP_train.drop(columns=[id_col])
+
+# =========================================================
+# 3️
+# =========================================================
+results = []
+for col in X_case.columns:
+    case_vals = X_case[col].dropna()
+    ctrl_vals = X_ctrl[col].dropna()
+    # 
+    if case_vals.nunique() <= 1 and ctrl_vals.nunique() <= 1:
+        continue
+    stat_lev, p_lev = levene(case_vals, ctrl_vals)
+    equal_var = p_lev > 0.05
+    stat_t, p_t = ttest_ind(case_vals, ctrl_vals, equal_var=equal_var)
+    results.append({
+        "Feature": col,
+        "Levene_p": p_lev,
+        "Equal_var": equal_var,
+        "t_stat": stat_t,
+        "p_value": p_t
+    })
+
+df_res = pd.DataFrame(results)
+
+# =========================================================
+# 4️
+# =========================================================
+sig_thres = 0.05
+selected = df_res[df_res["p_value"] < sig_thres].sort_values("p_value")
+selected_features = selected["Feature"].tolist()
+
+print(f" {len(selected_features)}")
+
+# 
+df_res.to_csv(r"_\Ttest_all_features_trainOnly.csv", index=False)
+selected.to_csv(r"_\Ttest_selected_features_trainOnly.csv", index=False)
+
+# =========================================================
+# 5️
+# =========================================================
+def filter_and_save(path, out_path):
+    df = pd.read_csv(path)
+    filtered = df[[id_col] + selected_features]
+    filtered.to_csv(out_path, index=False)
+
+filter_and_save(paths["MPP_train"], r"D:\Revison\4_final\feature select\rad_train\MPP_train_t.csv")
+filter_and_save(paths["MPP_test"],  r"D:\Revison\4_final\feature select\rad_train\MPP_test_t.csv")
+filter_and_save(paths["nonMPP_train"], r"D:\Revison\4_final\feature select\rad_train\nonMPP_train_t.csv")
+filter_and_save(paths["nonMPP_test"],  r"D:\Revison\4_final\feature select\rad_train\nonMPP_test_t.csv")
+
+print("✅ finish。")
