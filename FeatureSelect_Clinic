@@ -1,0 +1,88 @@
+import pandas as pd
+from scipy.stats import ttest_ind, levene
+import warnings
+
+# 忽略 precision loss 的 RuntimeWarning
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+# =========================================================
+# 1
+# =========================================================
+paths = {
+    "MPP_train": r"_\MPP_clinc_train.csv",
+    "MPP_test": r"_\MPP_clinc_test.csv",
+    "nonMPP_train": r"_\nonMPP_clinc_train.csv",
+    "nonMPP_test": r"_\nonMPP_clinc_test.csv",
+}
+
+# =========================================================
+# 2️
+# =========================================================
+MPP_train = pd.read_csv(paths["MPP_train"])
+MPP_test = pd.read_csv(paths["MPP_test"])
+nonMPP_train = pd.read_csv(paths["nonMPP_train"])
+nonMPP_test = pd.read_csv(paths["nonMPP_test"])
+
+
+id_col = MPP_train.columns[0]
+
+# =========================================================
+# 3️
+# =========================================================
+X_a = nonMPP_train.iloc[:, 1:]  
+X_b = MPP_train.iloc[:, 1:]     
+
+colNamesSel_t = []
+for colName in X_a.columns:
+    try:
+        
+        if levene(X_a[colName], X_b[colName])[1] > 0.05:
+            
+            if ttest_ind(X_a[colName], X_b[colName])[1] < 0.05:
+                colNamesSel_t.append(colName)
+        else:
+             
+            if ttest_ind(X_a[colName], X_b[colName], equal_var=False)[1] < 0.05:
+                colNamesSel_t.append(colName)
+    except Exception:
+        continue
+
+print(f" 在训练集上筛选出 {len(colNamesSel_t)} 个候选特征：")
+print(colNamesSel_t)
+
+# =========================================================
+# 4️
+# =========================================================
+dfs = [MPP_train, MPP_test, nonMPP_train, nonMPP_test]
+common_feats = set(colNamesSel_t)
+for df in dfs:
+    common_feats &= set(df.columns)
+common_feats = [c for c in colNamesSel_t if c in common_feats]
+
+
+
+selected_features = [id_col] + common_feats
+
+# =========================================================
+# 5️
+# =========================================================
+MPP_train_sel = MPP_train[selected_features]
+MPP_test_sel = MPP_test[selected_features]
+nonMPP_train_sel = nonMPP_train[selected_features]
+nonMPP_test_sel = nonMPP_test[selected_features]
+
+print("\n📐 shape：")
+print("MPP_train_sel:", MPP_train_sel.shape)
+print("nonMPP_train_sel:", nonMPP_train_sel.shape)
+print("MPP_test_sel:", MPP_test_sel.shape)
+print("nonMPP_test_sel:", nonMPP_test_sel.shape)
+
+# =========================================================
+# 6️
+# =========================================================
+MPP_train_sel.to_csv(r"_\MPP_clinc_train_6.csv", index=False)
+MPP_test_sel.to_csv(r"_\MPP_clinc_test_6.csv", index=False)
+nonMPP_train_sel.to_csv(r"_\nonMPP_clinc_train_6.csv", index=False)
+nonMPP_test_sel.to_csv(r"_\nonMPP_clinc_test_6.csv", index=False)
+
+print("\n✅ finish。")
