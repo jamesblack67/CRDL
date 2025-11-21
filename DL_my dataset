@@ -1,0 +1,148 @@
+import torch.utils.data as data
+import os
+import numpy as np
+import torch
+import nibabel as nib
+import torch.nn.functional as F
+from tqdm import tqdm
+
+def preprocess_nifti(img_path, mask_path=None, target_size=64, device="cuda"):
+
+  
+    img_nii = nib.load(img_path)
+    img_np = img_nii.get_fdata().astype(np.float32)
+    spacing = np.array(img_nii.header.get_zooms()[:3])
+
+    # -------------------------
+    # 1) numpy → torch tensor
+    # -------------------------
+    img = torch.tensor(img_np, dtype=torch.float32, device=device)  # (D,H,W)
+
+    # torch interpolate  (1,1,D,H,W)
+    img = img.unsqueeze(0).unsqueeze(0)  # → (1,1,D,H,W)
+
+    # -------------------------
+    # 2)  1mm 
+    # -------------------------
+    # spacing: (sz, sy, sx)
+    # new_spacing = (1,1,1)
+    scale = torch.tensor([
+        spacing[0] / 1.0,
+        spacing[1] / 1.0,
+        spacing[2] / 1.0,
+    ], device=device)
+
+
+    D, H, W = img_np.shape
+    new_D = int(D * scale[0])
+    new_H = int(H * scale[1])
+    new_W = int(W * scale[2])
+
+    img = F.interpolate(
+        img,
+        size=(new_D, new_H, new_W),
+        mode="trilinear",
+        align_corners=False
+    )  # torch float32
+
+    # -------------------------
+    # 3) mask 
+    # -------------------------
+    if mask_path and os.path.exists(mask_path):
+        mask_np = nib.load(mask_path).get_fdata() > 0.5
+        mask = torch.tensor(mask_np, dtype=torch.float32, device=device)
+        mask = mask.unsqueeze(0).unsqueeze(0)  # (1,1,D,H,W)
+
+   
+        mask = F.interpolate(
+            mask,
+            size=(new_D, new_H, new_W),
+            mode="nearest"
+        )
+
+        mask_bin = mask[0, 0] > 0.5
+        coords = mask_bin.nonzero()
+
+        if coords.numel() > 0:
+            d_min, h_min, w_min = coords.min(0)[0]
+            d_max, h_max, w_max = coords.max(0)[0]
+
+            margin = 5
+            d_min = max(d_min - margin, 0)
+            h_min = max(h_min - margin, 0)
+            w_min = max(w_min - margin, 0)
+
+            d_max = min(d_max + margin, new_D - 1)
+            h_max = min(h_max + margin, new_H - 1)
+            w_max = min(w_max + margin, new_W - 1)
+
+  
+            img = img[:, :, d_min:d_max+1, h_min:h_max+1, w_min:w_max+1]
+
+    # -------------------------
+    # -------------------------
+    img = F.interpolate(
+        img,
+        size=(target_size, target_size, target_size),
+        mode="trilinear",
+        align_corners=False
+    )
+
+    # -------------------------
+
+    # -------------------------
+    mean = img.mean()
+    std = img.std()
+    img = (img - mean) / (std + 1e-8)
+
+
+    return img.float()
+
+class myDataset(data.Dataset):
+
+    def __init__(self, all_pairs,target_size, cache_dir="cache"):
+        self.all_pairs_path = all_pairs
+        self.target_size = target_size
+
+        self.cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+
+        self.img_paths = []
+        self.labels = []
+
+        for item in tqdm(all_pairs, desc="Preparing data"):
+            img_path = item['image']
+            mask_path = item['mask']
+            label = int(item['label'])
+
+
+            case_id = os.path.splitext(os.path.basename(img_path))[0]
+            cache_file = os.path.join(cache_dir, f"{case_id}.pt")
+
+
+            if os.path.exists(cache_file):
+                data = torch.load(cache_file)
+                self.img_paths.append(cache_file) 
+            else:
+
+                img_tensor = preprocess_nifti(img_path, mask_path, target_size=self.target_size)
+                torch.save(img_tensor, cache_file)
+                self.img_paths.append(cache_file)
+
+            self.labels.append(label)
+
+    def __getitem__(self, index):
+
+        img = torch.load(self.img_paths[index], weights_only=True)
+        if img.dim() == 5 and img.size(1) == 1:
+            img = img.squeeze(1)  
+
+        label = torch.tensor(self.labels[index]).long()
+
+        basename = os.path.basename(self.img_paths[index])  # patient_267_image.nii.pt
+        patient_id = basename.split("_image")[0]
+
+        return img, label, patient_id
+
+    def __len__(self):
+        return len(self.img_paths)
