@@ -1,0 +1,204 @@
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.model_selection import cross_val_predict
+import joblib
+import os
+import matplotlib.pyplot as plt
+
+# ==================================================
+# 1️
+# ==================================================
+SEED = 42
+np.random.seed(SEED)
+
+# ==================================================
+# 2️
+# ==================================================
+paths = {
+    # clinic
+    "clinic_MPP_train": r"D:\Revison\4_final\feature select\clinic_train\MPP_clinc_train_6.csv",
+    "clinic_MPP_test":  r"D:\Revison\4_final\feature select\clinic_train\MPP_clinc_test_6.csv",
+    "clinic_nonMPP_train": r"D:\Revison\4_final\feature select\clinic_train\nonMPP_clinc_train_6.csv",
+    "clinic_nonMPP_test":  r"D:\Revison\4_final\feature select\clinic_train\nonMPP_clinc_test_6.csv",
+
+    # Radiomics
+    "rad_MPP_train": r"D:\Revison\4_final\feature select\rad_train\MPP_train_RFC_Selected30.csv",
+    "rad_MPP_test":  r"D:\Revison\4_final\feature select\rad_train\MPP_test_RFC_Selected30.csv",
+    "rad_nonMPP_train": r"D:\Revison\4_final\feature select\rad_train\nonMPP_train_RFC_Selected30.csv",
+    "rad_nonMPP_test":  r"D:\Revison\4_final\feature select\rad_train\nonMPP_test_RFC_Selected30.csv",
+
+    # DL
+    "res_MPP_train": r"D:\Revison4\4_final\feature select\DL\MPP_train_8.csv",
+    "res_MPP_test":  r"D:\Revison4\4_final\feature select\DL\MPP_test_8.csv",
+    "res_nonMPP_train": r"D:\Revison4\4_final\feature select\DL\nonMPP_train_8.csv",
+    "res_nonMPP_test":  r"D:\Revison4\4_final\feature select\DL\nonMPP_test_8.csv",
+}
+
+# ==================================================
+# 3️
+# ==================================================
+def load_dataset(pos_train, neg_train, pos_test, neg_test):
+    train_pos = pd.read_csv(pos_train)
+    train_neg = pd.read_csv(neg_train)
+    test_pos  = pd.read_csv(pos_test)
+    test_neg  = pd.read_csv(neg_test)
+
+    train_pos["label"] = 1
+    train_neg["label"] = 0
+    test_pos["label"] = 1
+    test_neg["label"] = 0
+
+    train_df = pd.concat([train_pos, train_neg], axis=0, ignore_index=True)
+    test_df  = pd.concat([test_pos, test_neg], axis=0, ignore_index=True)
+
+    X_train = train_df.iloc[:, 1:-1]
+    y_train = train_df["label"]
+    X_test  = test_df.iloc[:, 1:-1]
+    y_test  = test_df["label"]
+
+    return X_train, X_test, y_train, y_test
+
+# 
+Xc_train, Xc_test, y_train, y_test = load_dataset(
+    paths["clinic_MPP_train"], paths["clinic_nonMPP_train"],
+    paths["clinic_MPP_test"], paths["clinic_nonMPP_test"]
+)
+Xr_train, Xr_test, _, _ = load_dataset(
+    paths["rad_MPP_train"], paths["rad_nonMPP_train"],
+    paths["rad_MPP_test"], paths["rad_nonMPP_test"]
+)
+Xd_train, Xd_test, _, _ = load_dataset(
+    paths["res_MPP_train"], paths["res_nonMPP_train"],
+    paths["res_MPP_test"], paths["res_nonMPP_test"]
+)
+
+print(f": Train={len(y_train)}, Test={len(y_test)}")
+
+# ==================================================
+# 4️
+# ==================================================
+clinic_model = joblib.load(r"D:\Revison\4_final\model\RFC_clinic_Model.pkl")
+radiomics_model = joblib.load(r"D:\Revison\4_final\model\RFC_rad_Model.pkl")
+res_model = joblib.load(r"D:\Revison4\4_final\model\DL_model.pkl")
+
+# ==================================================
+# 5️
+# ==================================================
+p_clinic_train = cross_val_predict(clinic_model, Xc_train, y_train, method='predict_proba', cv=5)[:, 1]
+p_rad_train    = cross_val_predict(radiomics_model, Xr_train, y_train, method='predict_proba', cv=5)[:, 1]
+p_res_train    = cross_val_predict(res_model,      Xd_train, y_train, method='predict_proba', cv=5)[:, 1]
+
+# 
+p_clinic_test = clinic_model.predict_proba(Xc_test)[:, 1]
+p_rad_test    = radiomics_model.predict_proba(Xr_test)[:, 1]
+p_res_test    = res_model.predict_proba(Xd_test)[:, 1]
+
+# ==================================================
+# 5️
+# ==================================================
+def report_cv_auc(y_true, p_pred, name):
+    auc = roc_auc_score(y_true, p_pred)
+    print(f"{name} 基模型 5 折交叉验证 AUC（训练集 out-of-fold） = {auc:.4f}")
+
+print("\n📊 基模型 5 折交叉验证结果（训练集 out-of-fold）：")
+report_cv_auc(y_train, p_clinic_train, "Clinic")
+report_cv_auc(y_train, p_rad_train,    "Radiomics")
+report_cv_auc(y_train, p_res_train,    "DL")
+
+
+# ==================================================
+# 6️
+# ==================================================
+def fusion(strategy, pc, pr, pd):
+    if strategy == "CR":
+        return np.column_stack((pc, pr))
+    elif strategy == "CD":
+        return np.column_stack((pc, pd))
+    elif strategy == "RDL":
+        return np.column_stack((pr, pd))
+    elif strategy == "CRDL":
+        return np.column_stack((pc, pr, pd))
+    else:
+        raise ValueError("未知融合策略")
+
+# 训练集
+cr_train   = fusion("CR",   p_clinic_train, p_rad_train, p_res_train)
+cd_train   = fusion("CD",   p_clinic_train, p_rad_train, p_res_train)
+rdl_train  = fusion("RDL",  p_clinic_train, p_rad_train, p_res_train)
+crdl_train = fusion("CRDL", p_clinic_train, p_rad_train, p_res_train)
+
+# 测试集
+cr_test   = fusion("CR",   p_clinic_test, p_rad_test, p_res_test)
+cd_test   = fusion("CD",   p_clinic_test, p_rad_test, p_res_test)
+rdl_test  = fusion("RDL",  p_clinic_test, p_rad_test, p_res_test)
+crdl_test = fusion("CRDL", p_clinic_test, p_rad_test, p_res_test)
+
+# ==================================================
+# 7️
+# ==================================================
+def train_meta(X_train, y_train, name):
+    model = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=3,
+        class_weight='balanced',
+        max_features='sqrt',
+        min_samples_split=6,
+        random_state=SEED,
+        n_jobs=-1
+    )
+
+    model.fit(X_train, y_train)
+    auc_train = roc_auc_score(y_train, model.predict_proba(X_train)[:, 1])
+    print(f"{name} 融合模型训练完毕 ✅ 训练AUC = {auc_train:.4f}")
+
+    return model
+
+cr_model   = train_meta(cr_train,   y_train, "CR")
+cd_model   = train_meta(cd_train,   y_train, "CD")
+rdl_model  = train_meta(rdl_train,  y_train, "RDL（Radiomics+DL）")
+crdl_model = train_meta(crdl_train, y_train, "CRDL")
+
+# ==================================================
+# 8️
+# ==================================================
+results = {}
+
+def eval_model(name, model, X):
+    preds = model.predict_proba(X)[:, 1]
+    auc = roc_auc_score(y_test, preds)
+    print(f"{name} [测试AUC]: {auc:.4f}")
+    results[name] = preds
+
+print("\n🎯 测试集结果：")
+eval_model("Clinic", clinic_model, Xc_test)
+eval_model("Radiomics", radiomics_model, Xr_test)
+eval_model("DL", res_model, Xd_test)
+
+eval_model("CR", cr_model, cr_test)
+eval_model("CD", cd_model, cd_test)
+eval_model("RDL", rdl_model, rdl_test)
+eval_model("CRDL", crdl_model, crdl_test)
+
+# ==================================================
+# 9️
+# ==================================================
+plt.figure(figsize=(10, 9))
+
+model_names = ["Clinic", "Radiomics", "DL", "CR", "CD", "RDL", "CRDL"]
+
+for name in model_names:
+    preds = results[name]
+    fpr, tpr, _ = roc_curve(y_test, preds)
+    auc = roc_auc_score(y_test, preds)
+    plt.plot(fpr, tpr, label=f"{name} (AUC={auc:.3f})")
+
+plt.plot([0, 1], [0, 1], "k--")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curves of Base & Fusion Models")
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.show()
